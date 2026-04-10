@@ -216,7 +216,7 @@ async function decryptData(encryptedBytes, key, iv) {
 async function loadAndDecryptBundle(password) {
   try {
     // Fetch encrypted bundle
-    const response = await fetch("/app.bundle.enc");
+    const response = await fetch("/urban-funicular/app.bundle.enc");
     if (!response.ok) throw new Error("Failed to load encrypted bundle");
 
     const buffer = await response.arrayBuffer();
