@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trip Planner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; }
+
+    .auth-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .auth-box {
+      background: white;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .auth-header {
+      margin-bottom: 30px;
+    }
+
+    .swiss-cross {
+      font-size: 48px;
+      margin-bottom: 15px;
+    }
+
+    .auth-header h1 {
+      font-size: 24px;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .auth-header p {
+      font-size: 14px;
+      color: #666;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 16px;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #D00000;
+      box-shadow: 0 0 0 3px rgba(208, 0, 0, 0.1);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      background: #D00000;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn:hover { background: #b30000; }
+    .btn:active { background: #990000; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    .status {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #666;
+      min-height: 20px;
+    }
+
+    .status.error { color: #D00000; }
+    .status.loading { color: #0066cc; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #D00000;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    #app-content { display: none; }
+  </style>
+</head>
+<body>
+
+<div id="auth-screen" class="auth-container">
+  <div class="auth-box">
+    <div class="auth-header">
+      <div class="swiss-cross">✚</div>
+      <h1>Trip Planner</h1>
+      <p></p>
+    </div>
+    <form id="auth-form">
+      <div class="form-group">
+        <label for="password-input">Accès</label>
+        <input
+          id="password-input"
+          type="password"
+          placeholder="Mot de passe"
+          required
+          autocomplete="off"
+        />
+      </div>
+      <button type="submit" class="btn" id="submit-btn">Continuer</button>
+      <div class="status" id="status-message"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app-content">
+  <!-- Injected by decryption script -->
+</div>
+
+<script>
+/**
+ * Client-side decryption logic for encrypted app bundle
+ */
+
+const PASSWORD_FORM = document.getElementById("auth-form");
+const PASSWORD_INPUT = document.getElementById("password-input");
+const SUBMIT_BTN = document.getElementById("submit-btn");
+const STATUS_MSG = document.getElementById("status-message");
+const AUTH_SCREEN = document.getElementById("auth-screen");
+const APP_CONTENT = document.getElementById("app-content");
+
+/**
+ * Derive a key from password using PBKDF2
+ */
+async function deriveKey(password, salt) {
+  const encoder = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: salt,
+      iterations: 100_000,
+    },
+    baseKey,
+    256
+  );
+
+  return new Uint8Array(bits);
+}
+
+/**
+ * Decrypt data using AES-256-GCM
+ */
+async function decryptData(encryptedBytes, key, iv) {
+  const decKey = await crypto.subtle.importKey(
+    "raw",
+    key,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+
+  const plaintext = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    decKey,
+    encryptedBytes
+  );
+
+  return new TextDecoder().decode(plaintext);
+}
+
+/**
+ * Load and decrypt the app bundle
+ */
+async function loadAndDecryptBundle(password) {
+  try {
+    // Fetch encrypted bundle
+    const response = await fetch("/app.bundle.enc");
+    if (!response.ok) throw new Error("Failed to load encrypted bundle");
+
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+
+    // Parse: [salt(16)] [iv(12)] [ciphertext(...)]
+    const salt = bytes.slice(0, 16);
+    const iv = bytes.slice(16, 16 + 12);
+    const ciphertext = bytes.slice(16 + 12);
+
+    // Derive key and decrypt
+    setStatus("🔐 Vérification...", "loading");
+    const key = await deriveKey(password, salt);
+
+    setStatus("🔓 Initialisation...", "loading");
+    const bundleJson = await decryptData(ciphertext, key, iv);
+    const bundle = JSON.parse(bundleJson);
+
+    setStatus("📦 Chargement...", "loading");
+    return bundle;
+  } catch (error) {
+    throw new Error(`Décryption échouée: ${error.message}`);
+  }
+}
+
+/**
+ * Inject decrypted assets into the page
+ */
+function injectAssets(bundle) {
+  const { assets } = bundle;
+
+  // Create full HTML structure (with hidden itinerary details)
+  const html = `
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trip Planner</title>
+  <style>${assets["app.css"]}</style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <div class="swiss-cross">✚</div>
+        <div>
+          <h1>Trip Planner</h1>
+          <p class="header-subtitle"></p>
+        </div>
+      </div>
+      <div class="header-progress">
+        <span class="progress-label"><span id="done-count">0</span> / <span id="total-count">0</span> items</span>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-body">
+    <nav class="day-nav" id="day-nav">
+      <p class="nav-label">NAVIGATION</p>
+    </nav>
+
+    <main class="content" id="content">
+      <!-- Injected by app.js -->
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"><\/script>
+
+  <script>
+    // Inline railways data
+    window.RAILWAYS_DATA = ${assets["railways.json"]};
+
+    ${assets["app.js"]}
+  <\/script>
+</body>
+</html>
+  `;
+
+  // Write new document (this clears the current DOM and replaces it)
+  document.open();
+  document.write(html);
+  document.close();
+}
+
+function setStatus(message, type = "normal") {
+  STATUS_MSG.textContent = message;
+  STATUS_MSG.className = `status ${type}`;
+  if (type === "loading") {
+    STATUS_MSG.innerHTML = `<span class="spinner"></span>${message}`;
+  }
+}
+
+PASSWORD_FORM.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const password = PASSWORD_INPUT.value;
+  if (!password) return;
+
+  SUBMIT_BTN.disabled = true;
+  PASSWORD_INPUT.disabled = true;
+
+  try {
+    const bundle = await loadAndDecryptBundle(password);
+    setStatus("✅ Accès autorisé", "loading");
+
+    setTimeout(() => {
+      injectAssets(bundle);
+    }, 500);
+  } catch (error) {
+    setStatus(`❌ Accès refusé`, "error");
+    SUBMIT_BTN.disabled = false;
+    PASSWORD_INPUT.disabled = false;
+    PASSWORD_INPUT.focus();
+  }
+});
+
+// Focus password input on load
+PASSWORD_INPUT.focus();
+</script>
+
+</body>
+</html>
